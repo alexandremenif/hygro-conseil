@@ -1,0 +1,646 @@
+<!-- Chosen Palette: Calme Harmonie (Gris neutre, Blanc, avec accents Bleu/Vert pour les sections et Rouge/Bleu/Vert sémantiques pour le graphique) --><!-- Application Structure Plan: Conception en deux lignes. Ligne 1 (Entrées) : Grille 2 colonnes (Intérieur/Extérieur) pour la saisie. Bouton "Comparer" en pleine largeur. Ligne 2 (Sorties) : Grille 2 colonnes (Analyse/Diagramme), masquée par défaut. Cette structure sépare l'action (haut) de la réaction (bas) et permet une comparaison facile sur grand écran (Analyse vs Diagramme). Le masquage initial évite les blocs vides. --><!-- Visualization & Content Choices: Entrées (HTML/Tailwind Form) -> Saisie utilisateur. Diagnostic (HTML/Tailwind/JS) -> Informer -> Texte dynamique + classes de couleur sémantiques (succès/danger/avertissement). Diagramme (Chart.js Canvas) -> Comparer/Analyser -> Superposition de graphiques linéaires pour simuler le diagramme psychrométrique, avec des datasets dynamiques (lignes/points) pour montrer les états Intérieur/Extérieur/Résultat et une zone de confort (remplissage entre 40% et 60% HR). Interaction via les tooltips. --><!-- CONFIRMATION: NO SVG graphics used. NO Mermaid JS used. --><!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HygroConseil</title>
+    <!-- Chargement de Tailwind CSS --><script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chargement de Chart.js pour le diagramme --><script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        /* Styles pour la police et pour masquer les flèches des champs numériques */
+        body {
+            font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+        }
+        input[type=number]::-webkit-inner-spin-button,
+        input[type=number]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type=number] {
+            -moz-appearance: textfield;
+        }
+        /* Style pour le conteneur du graphique pour maintenir un ratio et une hauteur max */
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 700px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 400px;
+            max-height: 50vh;
+        }
+        @media (min-width: 1024px) {
+            .chart-container {
+                height: 450px;
+                max-height: 60vh;
+            }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 flex items-start justify-center min-h-screen py-6 md:py-10 px-4">
+
+<!-- Conteneur principal (responsive) --><div class="w-full max-w-lg lg:max-w-5xl bg-white rounded-xl shadow-2xl p-6 md:p-8 space-y-6">
+
+    <!-- 1. Titre de l'application --><header class="text-center">
+    <h1 class="text-3xl font-bold text-gray-800">HygroConseil</h1>
+    <p class="text-gray-600 mt-1">Comparez l'air intérieur et extérieur pour savoir si l'aération va humidifier ou assécher votre logement.</p>
+</header>
+
+    <!-- 2. Formulaire de Saisie (Ligne du Haut) --><form id="hygro-form" class="space-y-6">
+
+    <!-- Grille pour les blocs de saisie (1 col mobile, 2 col desktop) --><div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+    <!-- Bloc Air Intérieur (gauche) --><div class="border border-blue-300 bg-blue-50 rounded-lg p-4 space-y-4">
+    <div class="flex items-center">
+        <span class="text-2xl mr-2">🏠</span>
+        <h2 class="text-xl font-semibold text-blue-800">Air Intérieur</h2>
+    </div>
+
+    <div>
+        <label for="T_int" class="block text-sm font-medium text-gray-700">Température Intérieure (°C) *</label>
+        <input type="number" step="0.1" id="T_int" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" placeholder="Ex: 20.0" required>
+    </div>
+    <div>
+        <label for="HR_int" class="block text-sm font-medium text-gray-700">Humidité Intérieure (%) <span class="text-xs text-gray-500">(Optionnel)</span></label>
+        <input type="number" step="0.1" id="HR_int" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" placeholder="Ex: 65.0 (Si vous avez un hygromètre)">
+    </div>
+</div>
+
+    <!-- Bloc Air Extérieur (droite) --><div class="border border-green-300 bg-green-50 rounded-lg p-4 space-y-4">
+    <div class="flex items-center">
+        <span class="text-2xl mr-2">🌳</span>
+        <h2 class="text-xl font-semibold text-green-800">Air Extérieur</h2>
+    </div>
+    <div class="space-y-4">
+        <div>
+            <label for="T_ext" class="block text-sm font-medium text-gray-700">Température Extérieure (°C) *</label>
+            <input type="number" step="0.1" id="T_ext" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" placeholder="Ex: 5.0" required>
+        </div>
+        <div>
+            <label for="HR_ext" class="block text-sm font-medium text-gray-700">Humidité Extérieure (%) *</label>
+            <input type="number" step="0.1" id="HR_ext" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" placeholder="Ex: 80.0" required>
+        </div>
+    </div>
+</div>
+</div>
+
+    <button type="submit" class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-lg font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+        Comparer
+    </button>
+</form>
+
+    <!-- Ligne du Bas (Analyse et Diagramme) - Masquée par défaut --><div id="results-section" class="hidden mt-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
+
+    <!-- Colonne de Gauche : Analyse --><div class="space-y-4">
+    <!-- 3. Zone de Diagnostic (F1.2) --><div id="diagnostic-card" class="hidden border-l-4 p-4 rounded-lg space-y-3 min-h-[150px]">
+    <h3 id="diagnostic-title" class="text-xl font-semibold"></h3>
+    <p id="diagnostic-reason" class="text-base"></p>
+    <p id="diagnostic-action" class="text-base font-medium"></p>
+
+    <!-- Détails de l'analyse (pour Humidité Absolue) --><div id="analyse-details" class="hidden space-y-2 pt-2 border-t border-gray-300">
+    <div class="flex justify-between">
+        <span class="text-sm font-medium text-gray-700">Humidité Absolue Intérieure:</span>
+        <span id="analyse-ha-int" class="text-sm font-bold text-gray-900"></span>
+    </div>
+    <div class="flex justify-between">
+        <span class="text-sm font-medium text-gray-700">Humidité Absolue Extérieure:</span>
+        <span id="analyse-ha-ext" class="text-sm font-bold text-gray-900"></span>
+    </div>
+</div>
+</div>
+</div>
+
+    <!-- Colonne de Droite : Diagramme --><div class="bg-white rounded-xl shadow-lg p-4 md:p-6">
+    <!-- 4. Zone du Diagramme (F1.3) --><div class="chart-container">
+    <canvas id="psychroChart"></canvas>
+</div>
+</div>
+</div>
+</div>
+
+<script>
+    // === INITIALISATION ===
+    // Références aux éléments du DOM
+    const form = document.getElementById('hygro-form');
+    const diagnosticCard = document.getElementById('diagnostic-card');
+    const diagnosticTitle = document.getElementById('diagnostic-title');
+    const diagnosticReason = document.getElementById('diagnostic-reason');
+    const diagnosticAction = document.getElementById('diagnostic-action');
+    const resultsSection = document.getElementById('results-section');
+    const analyseDetails = document.getElementById('analyse-details');
+    const analyseHaInt = document.getElementById('analyse-ha-int');
+    const analyseHaExt = document.getElementById('analyse-ha-ext');
+
+    // Initialisation du Chart.js (une seule fois)
+    let chartInstance = null;
+    const ctx = document.getElementById('psychroChart').getContext('2d');
+
+    // === LOGIQUE MÉTIER (3.1) ===
+
+    // --- 3.1.1 Fonctions de Calcul de Base ---
+    const P_ATM = 101325; // Pression atmosphérique standard en Pa
+
+    /**
+     * Calcule la Pression de Vapeur Saturante (Formule de Magnus-Tetens)
+     * @param {number} T_C - Température en degrés Celsius
+     * @returns {number} Pression de vapeur saturante (P_sat) en Pascals (Pa)
+     */
+    function getSaturationVaporPressure(T_C) {
+        return 610.94 * Math.exp((17.625 * T_C) / (243.04 + T_C));
+    }
+
+    /**
+     * Calcule l'Humidité Absolue (en g/kg) à partir de T° et HR%
+     * @param {number} T_C - Température en degrés Celsius
+     * @param {number} HR_percent - Humidité relative en %
+     * @returns {number} Humidité absolue (HA) en g/kg
+     */
+    function getAbsoluteHumidity(T_C, HR_percent) {
+        const HR = HR_percent / 100.0;
+        const P_sat = getSaturationVaporPressure(T_C);
+        const P_v = P_sat * HR;
+        const P_da = P_ATM - P_v;
+        const humRatio_kg_kg = (0.621945 * P_v) / P_da;
+        return humRatio_kg_kg * 1000;
+    }
+
+    /**
+     * Calcule l'Humidité Relative (en %) à partir de T° et HA
+     * @param {number} T_C - Température en degrés Celsius
+     * @param {number} HA_g_kg - Humidité absolue en g/kg
+     * @returns {number} Humidité relative (HR) en %
+     */
+    function getRelativeHumidity(T_C, HA_g_kg) {
+        const humRatio_kg_kg = HA_g_kg / 1000.0;
+        const P_v = (humRatio_kg_kg * P_ATM) / (0.621945 + humRatio_kg_kg);
+        const P_sat = getSaturationVaporPressure(T_C);
+        const HR = P_v / P_sat;
+        return Math.min(HR * 100, 100);
+    }
+
+    /**
+     * --- 3.1.2 Logique - Mode Cible ---
+     * @returns {object} Un objet de diagnostic { titre, diagnostic, conseil, style, HA_ext, HR_resultante }
+     */
+    function runModeCible(T_int, T_ext, HR_ext) {
+        const HA_ext = getAbsoluteHumidity(T_ext, HR_ext);
+        const HR_resultante = getRelativeHumidity(T_int, HA_ext);
+
+        let titre = "";
+        let conseil = "";
+        let style = "info";
+
+        const diagnostic = `L'air extérieur, une fois réchauffé à ${T_int.toFixed(1)}°C, aura une humidité de ${HR_resultante.toFixed(1)}%.`;
+
+        if (HR_resultante >= 40 && HR_resultante <= 60) {
+            titre = "RÉSULTAT : AIR CONFORTABLE";
+            conseil = "C'est un air confortable. Recommandé.";
+            style = "success";
+        } else if (HR_resultante >= 30 && HR_resultante < 40) {
+            titre = "RÉSULTAT : AIR SEC";
+            conseil = "L'aération amènera un air sec. Recommandé si vous êtes trop humide.";
+            style = "warning";
+        } else if (HR_resultante < 30) {
+            titre = "RÉSULTAT : AIR TRÈS SEC";
+            conseil = "L'aération amènera un air très sec. Recommandé si vous êtes trop humide.";
+            style = "danger";
+        } else if (HR_resultante > 60 && HR_resultante <= 70) {
+            titre = "RÉSULTAT : AIR HUMIDE";
+            conseil = "L'aération amènera un air humide. Recommandé si vous êtes trop sec.";
+            style = "warning";
+        } else { // > 70
+            titre = "RÉSULTAT : AIR TRÈS HUMIDE";
+            conseil = "L'aération amènera un air très humide. Recommandé si vous êtes trop sec.";
+            style = "danger";
+        }
+
+        return { titre, diagnostic, conseil, style, HA_ext, HR_resultante };
+    }
+
+    /**
+     * --- 3.1.3 Logique - Mode Comparaison ---
+     * @returns {object} Un objet de diagnostic { titre, raison, action, style, HA_int, HA_ext }
+     */
+    function runModeComparaison(T_int, HR_int, T_ext, HR_ext) {
+        const HA_int = getAbsoluteHumidity(T_int, HR_int);
+        const HA_ext = getAbsoluteHumidity(T_ext, HR_ext);
+
+        let etatInterieur = "";
+        if (HR_int < 30) etatInterieur = "Très Sec";
+        else if (HR_int < 40) etatInterieur = "Sec";
+        else if (HR_int <= 60) etatInterieur = "Confortable";
+        else if (HR_int <= 70) etatInterieur = "Humide";
+        else etatInterieur = "Très Humide";
+
+        let titre = "", raison = "", action = "", style = "info";
+
+        if (etatInterieur === "Confortable") {
+            titre = "CONFORT IDÉAL";
+            raison = `Votre hygrométrie est stable (${HR_int.toFixed(1)}%).`;
+            action = "Aération non requise pour l'humidité.";
+            style = "success";
+        } else if (etatInterieur === "Humide" || etatInterieur === "Très Humide") {
+            if (HA_ext < HA_int) {
+                titre = "AÉREZ";
+                raison = `Votre air intérieur (${HR_int.toFixed(1)}%) est ${etatInterieur} ET l'air extérieur est plus sec.`;
+                action = "C'est le moment idéal pour assécher votre logement.";
+                style = "success";
+            } else {
+                titre = "NE PAS AÉRER";
+                raison = `Votre air intérieur (${HR_int.toFixed(1)}%) est ${etatInterieur}, MAIS l'air extérieur l'est encore plus.`;
+                action = "Aérer maintenant ferait empirer la situation.";
+                style = "danger";
+            }
+        } else { // Sec ou Très Sec
+            if (HA_ext > HA_int) {
+                titre = "AÉREZ";
+                raison = `Votre air intérieur (${HR_int.toFixed(1)}%) est ${etatInterieur} ET l'air extérieur est plus humide.`;
+                action = "C'est le moment idéal pour humidifier naturellement votre logement.";
+                style = "success";
+            } else {
+                titre = "NE PAS AÉRER";
+                raison = `Votre air intérieur (${HR_int.toFixed(1)}%) est ${etatInterieur}, ET l'air extérieur l'est encore plus.`;
+                action = "Aérer maintenant assécherait davantage votre logement.";
+                style = "danger";
+            }
+        }
+
+        return { titre, raison, action, style, HA_int, HA_ext };
+    }
+
+    /**
+     * Met à jour la carte de diagnostic dans l'UI
+     */
+    function updateDiagnosticUI(result) {
+        const styles = {
+            success: "border-green-500 bg-green-50 text-green-800",
+            danger: "border-red-500 bg-red-50 text-red-800",
+            warning: "border-yellow-500 bg-yellow-50 text-yellow-800",
+            info: "border-blue-500 bg-blue-50 text-blue-800"
+        };
+
+        diagnosticCard.className = "border-l-4 p-4 rounded-lg space-y-3 min-h-[150px]";
+        diagnosticCard.classList.add(...styles[result.style || 'info'].split(' '));
+
+        diagnosticTitle.textContent = result.titre;
+        diagnosticReason.textContent = result.diagnostic || result.raison;
+        diagnosticAction.textContent = result.conseil || result.action;
+
+        if (result.HA_ext !== undefined) {
+            analyseHaExt.textContent = `${result.HA_ext.toFixed(2)} g/kg`;
+            analyseDetails.classList.remove('hidden');
+        } else {
+            analyseDetails.classList.add('hidden');
+        }
+
+        if (result.HA_int !== undefined) {
+            analyseHaInt.textContent = `${result.HA_int.toFixed(2)} g/kg`;
+        } else {
+            analyseHaInt.textContent = "N/A";
+        }
+
+        diagnosticCard.classList.remove('hidden');
+    }
+
+    // === GESTIONNAIRES D'ÉVÉNEMENTS ===
+
+    form.addEventListener('submit', function(event) {
+        event.preventDefault();
+
+        const T_int = parseFloat(document.getElementById('T_int').value);
+        const T_ext = parseFloat(document.getElementById('T_ext').value);
+        const HR_ext = parseFloat(document.getElementById('HR_ext').value);
+        const HR_int_val = document.getElementById('HR_int').value;
+        const HR_int = HR_int_val === "" ? NaN : parseFloat(HR_int_val); // Gérer le champ vide
+
+        if (isNaN(T_int) || isNaN(T_ext) || isNaN(HR_ext)) {
+            showSimpleModal("Veuillez remplir tous les champs requis (*).");
+            return;
+        }
+
+        let result;
+
+        if (isNaN(HR_int)) {
+            // Mode Cible
+            result = runModeCible(T_int, T_ext, HR_ext);
+            result.T_int = T_int;
+            result.T_ext = T_ext;
+            result.HR_ext = HR_ext;
+        } else {
+            // Mode Comparaison
+            result = runModeComparaison(T_int, HR_int, T_ext, HR_ext);
+            result.T_int = T_int;
+            result.T_ext = T_ext;
+            result.HR_ext = HR_ext;
+            result.HR_int = HR_int;
+            result.HR_resultante = getRelativeHumidity(T_int, result.HA_ext); // Ajouter HR_resultante
+        }
+
+        updateDiagnosticUI(result);
+        updateChart(result);
+
+        // Afficher la section des résultats
+        resultsSection.classList.remove('hidden');
+    });
+
+    // === LOGIQUE D'AFFICHAGE DU DIAGRAMME (F1.3) ===
+
+    /**
+     * Génère les données pour une courbe d'HR constante
+     */
+    function generateHRLine(HR, minT = -10, maxT = 40) {
+        let data = [];
+        for (let t = minT; t <= maxT; t++) {
+            data.push({
+                x: t,
+                y: getAbsoluteHumidity(t, HR)
+            });
+        }
+        return data;
+    }
+
+    /**
+     * Génère des données pour une ligne verticale avec plusieurs points pour une meilleure détection du survol.
+     */
+    function generateVerticalLine(x, minY, maxY, steps = 20) {
+        const data = [];
+        const step = (maxY - minY) / steps;
+        for (let i = 0; i <= steps; i++) {
+            data.push({ x: x, y: minY + i * step });
+        }
+        return data;
+    }
+
+    /**
+     * Génère des données pour une ligne horizontale avec plusieurs points pour une meilleure détection du survol.
+     */
+    function generateHorizontalLine(y, minX, maxX, steps = 20) {
+        const data = [];
+        const step = (maxX - minX) / steps;
+        for (let i = 0; i <= steps; i++) {
+            data.push({ x: minX + i * step, y: y });
+        }
+        return data;
+    }
+
+    /**
+     * Met à jour le diagramme psychrométrique
+     */
+    function updateChart(data) {
+        const { T_int, T_ext, HR_ext, HR_int, HA_int, HA_ext, HR_resultante } = data;
+
+        // 1. Fond : Courbes HR (0% à 100%, pas de 5)
+        let backgroundCurves = [];
+        for (let hr = 0; hr <= 100; hr += 5) {
+
+            let borderColor = 'rgba(100, 100, 100, 0.4)';
+            let borderWidth = 1;
+
+            if (hr === 40 || hr === 60) {
+                borderColor = 'rgba(60, 180, 100, 0.7)'; // Vert un peu plus foncé pour les limites 40/60
+                borderWidth = 1.5;
+            } else if (hr > 40 && hr < 60) {
+                borderColor = 'rgba(100, 220, 150, 0.6)'; // Vert clair pour la zone de confort
+            }
+
+            backgroundCurves.push({
+                label: `HR ${hr}%`,
+                data: generateHRLine(hr),
+                borderColor: borderColor,
+                borderWidth: borderWidth,
+                pointRadius: 0,
+                pointHoverRadius: 0,
+                pointHitRadius: 1, // MODIFICATION: Réduit pour moins d'interférence
+                fill: false
+            });
+        }
+
+        // 2. Lignes Principales (Verticale T_int, Horizontale HA_ext)
+        const T_int_Line = {
+            label: `Temp. Intérieure (${T_int.toFixed(1)}°C)`,
+            data: generateVerticalLine(T_int, 0, 30), // MODIFICATION: Génère plus de points
+            borderColor: 'rgb(59, 130, 246)', // Bleu pour l'intérieur
+            borderWidth: 2,
+            borderDash: [5, 5],
+            pointRadius: 0,
+            pointHoverRadius: 0,
+            pointHitRadius: 10,
+            fill: false
+        };
+
+        const HA_ext_Line = {
+            label: `Hum. Abs. Extérieure (${HA_ext.toFixed(2)} g/kg)`,
+            data: generateHorizontalLine(HA_ext, -10, 40), // MODIFICATION: Génère plus de points
+            borderColor: 'rgb(34, 197, 94)', // Vert pour l'extérieur
+            borderWidth: 2,
+            borderDash: [5, 5],
+            pointRadius: 0,
+            pointHoverRadius: 0,
+            pointHitRadius: 10,
+            fill: false
+        };
+
+        // 3. Courbes en surbrillance (Ext, Résultante, Int)
+        const HR_ext_Curve = {
+            label: `Courbe Extérieure (${HR_ext.toFixed(1)}%)`,
+            data: generateHRLine(HR_ext),
+            borderColor: 'rgb(34, 197, 94)', // Vert pour l'extérieur
+            borderWidth: 3,
+            pointRadius: 0,
+            pointHoverRadius: 0,
+            pointHitRadius: 5
+        };
+
+        const HR_res_Curve = {
+            label: `Courbe Résultante (${HR_resultante.toFixed(1)}%)`,
+            data: generateHRLine(HR_resultante),
+            borderColor: 'rgb(59, 130, 246)', // Bleu pour le résultat (assorti à l'intérieur)
+            borderWidth: 3,
+            pointRadius: 0,
+            pointHoverRadius: 0,
+            pointHitRadius: 5
+        };
+
+        // 4. Datasets de base (Courbes de fond + Lignes principales + Courbes surbrillance)
+        const datasets = [
+            ...backgroundCurves,
+            T_int_Line,
+            HA_ext_Line,
+            HR_ext_Curve,
+            HR_res_Curve
+        ];
+
+        // 5. Ajout de la courbe Intérieure (si fournie)
+        if (!isNaN(HR_int)) {
+            datasets.push({
+                label: `Courbe Intérieure (${HR_int.toFixed(1)}%)`,
+                data: generateHRLine(HR_int),
+                borderColor: 'rgb(59, 130, 246)', // Bleu pour l'intérieur
+                borderWidth: 3,
+                pointRadius: 0,
+                pointHoverRadius: 0,
+                pointHitRadius: 5
+            });
+        }
+
+        // 6. Points en surbrillance (par-dessus les lignes)
+        // Point B: Extérieur Actuel
+        datasets.push({
+            label: `Point Extérieur`,
+            data: [{x: T_ext, y: HA_ext}],
+            backgroundColor: 'rgb(34, 197, 94)', // Vert pour l'extérieur
+            pointRadius: 5,
+            pointHoverRadius: 7
+        });
+
+        // Point B': Résultat
+        datasets.push({
+            label: `Point Résultat`,
+            data: [{x: T_int, y: HA_ext}],
+            backgroundColor: 'rgb(59, 130, 246)', // Bleu pour le résultat (assorti à l'intérieur)
+            pointRadius: 5,
+            pointHoverRadius: 7
+        });
+
+        // Point A (Intérieur) - si fourni
+        if (!isNaN(HR_int) && !isNaN(HA_int)) {
+            datasets.push({
+                label: `Point Intérieur`,
+                data: [{x: T_int, y: HA_int}],
+                backgroundColor: 'rgb(59, 130, 246)', // Bleu pour l'intérieur
+                pointRadius: 5,
+                pointHoverRadius: 7
+            });
+        }
+
+        // Création ou mise à jour du graphique
+        if (chartInstance) {
+            chartInstance.data.datasets = datasets;
+            chartInstance.update();
+        } else {
+            chartInstance = new Chart(ctx, {
+                type: 'line',
+                data: { datasets: datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'nearest',
+                        intersect: false,
+                        axis: 'xy'
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            position: 'bottom',
+                            min: -10,
+                            max: 40,
+                            title: { display: true, text: 'Température (°C)' }
+                        },
+                        y: {
+                            type: 'linear',
+                            min: 0,
+                            max: 30, // Max 30 g/kg
+                            title: { display: true, text: 'Humidité Absolue (g/kg)' }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: true,
+                            labels: {
+                                filter: function(item) {
+                                    // Affiche seulement les lignes/points principaux, cache les courbes de fond HR
+                                    if (item.label) {
+                                        return !item.label.startsWith('HR ');
+                                    }
+                                    return false;
+                                }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                title: function() { return ''; },
+                                label: function(context) {
+                                    const dLabel = context.dataset.label || '';
+
+                                    // Cas 1 : Points principaux
+                                    if (dLabel.startsWith('Point Intérieur')) {
+                                        return `Intérieur: (${context.parsed.x.toFixed(1)}°C, ${context.parsed.y.toFixed(2)} g/kg)`;
+                                    }
+                                    if (dLabel.startsWith('Point Extérieur')) {
+                                        return `Extérieur: (${context.parsed.x.toFixed(1)}°C, ${context.parsed.y.toFixed(2)} g/kg)`;
+                                    }
+                                    if (dLabel.startsWith('Point Résultat')) {
+                                        return `Résultat: (${context.parsed.x.toFixed(1)}°C, ${context.parsed.y.toFixed(2)} g/kg)`;
+                                    }
+
+                                    // Cas 2 : Lignes (HR, pointillées, courbes)
+                                    if (dLabel.startsWith('HR ') || dLabel.startsWith('Temp.') || dLabel.startsWith('Hum. Abs.') || dLabel.startsWith('Courbe')) {
+                                        return dLabel;
+                                    }
+
+                                    return null;
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    /**
+     * Affiche un modal simple (remplace alert())
+     */
+    function showSimpleModal(message) {
+        let modalBackdrop = document.createElement('div');
+        modalBackdrop.className = "fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full flex items-center justify-center z-50";
+
+        let modalBox = document.createElement('div');
+        modalBox.className = "relative p-5 border w-full max-w-sm shadow-lg rounded-md bg-white";
+
+        let modalContent = document.createElement('div');
+        modalContent.className = "mt-3 text-center";
+
+        let title = document.createElement('h3');
+        title.className = "text-lg leading-6 font-medium text-gray-900";
+        title.textContent = "Information";
+
+        let messageDiv = document.createElement('div');
+        messageDiv.className = "mt-2 px-7 py-3";
+        let messageText = document.createElement('p');
+        messageText.className = "text-sm text-gray-500";
+        messageText.textContent = message;
+        messageDiv.appendChild(messageText);
+
+        let buttonDiv = document.createElement('div');
+        buttonDiv.className = "items-center px-4 py-3";
+        let button = document.createElement('button');
+        button.className = "px-4 py-2 bg-blue-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500";
+        button.textContent = "OK";
+
+        buttonDiv.appendChild(button);
+        modalContent.appendChild(title);
+        modalContent.appendChild(messageDiv);
+        modalContent.appendChild(buttonDiv);
+        modalBox.appendChild(modalContent);
+        modalBackdrop.appendChild(modalBox);
+
+        document.body.appendChild(modalBackdrop);
+
+        const closeModal = () => {
+            if (document.body.contains(modalBackdrop)) {
+                document.body.removeChild(modalBackdrop);
+            }
+        };
+
+        button.onclick = closeModal;
+        modalBackdrop.onclick = function(event) {
+            if (event.target === modalBackdrop) {
+                closeModal();
+            }
+        }
+    }
+</script>
+</body>
+</html>
